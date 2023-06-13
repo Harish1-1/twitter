@@ -1,0 +1,86 @@
+const express = require("express");
+const sqlite3 = require("sqlite3");
+const path = require("path");
+const bcrypt = require("bcrypt");
+const { open } = require("sqlite");
+const jwt = require("jsonwebtoken");
+const app = express();
+let db = null;
+const dbPath = path.join(__dirname, "twitterClone.db");
+app.use(express.json());
+const initial = async () => {
+  try {
+    db = await open({
+      filename: dbPath,
+      driver: sqlite3.Database,
+    });
+    app.listen(3000, () => {
+      console.log("running");
+    });
+  } catch (e) {
+    console.log(e);
+    process.exit(1);
+  }
+};
+initial();
+app.post("/register/", async (request, response) => {
+  const { username, password, name, gender } = request.body;
+  const hashed = await bcrypt.hash(request.body.password);
+  const select = `select * from user where username LIKE '${username}';`;
+  const dbUser = await db.get(select);
+  if (dbUser === undefined) {
+    if (password.length < 6) {
+      response.status(400);
+      response.send("Password is too short");
+    } else {
+      const users = `insert into user(username,password,name,gender) values('${username}','${hashed}','${name}','${gender}');`;
+      const dbRes = await db.run(users);
+      response.send("User created successfully");
+    }
+  } else {
+    response.status(400);
+    response.send("User already exists");
+  }
+});
+app.post("/login/", async (request, response) => {
+  const { username, password } = request.body;
+  const select = `select * from user where username='${username}';`;
+  const dbUser = await db.get(select);
+  if (dbUser === undefined) {
+    response.send("Invalid user");
+  } else {
+    const isMatch = await bcrypt.compare(password, dbUser.password);
+    if (isMatch === true) {
+      const pay = {
+        username: username,
+      };
+      const jwtToken = jwt.sign(pay, "MY");
+      response.send({ jwtToken });
+      console.log(jwtToken);
+    } else {
+      response.send("Invalid password");
+    }
+  }
+});
+app.get("/login/", (request, response) => {
+  let jwtToken;
+  const header = request.headers["authorization"];
+  if (header !== undefined) {
+    jwtToken = header.split(" ")[1];
+  }
+  if (jwtToken === undefined) {
+    response.send(401);
+    response.send("Invalid JWT Token");
+  } else {
+    jwt.verify(jwtToken, "MY", async (error, payload) => {
+      if (error) {
+        response.send("Invalid JWT Token");
+      } else {
+        const gets = `select * from user`;
+        const hi = await db.all(gets);
+        response.send(hi);
+      }
+    });
+  }
+});
+module.exports = app;
